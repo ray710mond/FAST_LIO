@@ -605,23 +605,32 @@ void Preprocess::default_handler(const sensor_msgs::msg::PointCloud2::UniquePtr 
   pl_corn.clear();
   pl_full.clear();
 
-  pcl::PointCloud<pcl::PointXYZI> pl_orig;
+  // Generic depth-camera clouds commonly contain XYZ only. Converting them
+  // to PointXYZI emits a missing-field warning for every frame, and the old
+  // path also bypassed point_filter_num, sending the complete organized depth
+  // image into FAST-LIO. Read XYZ directly and apply the configured input
+  // decimation before constructing the internal point type.
+  pcl::PointCloud<pcl::PointXYZ> pl_orig;
   pcl::fromROSMsg(*msg, pl_orig);
   int plsize = pl_orig.points.size();
   if (plsize == 0)
     return;
-  pl_surf.reserve(plsize);
+  pl_surf.reserve((plsize + point_filter_num - 1) / point_filter_num);
 
-  for(uint i = 0; i < plsize; ++i)
+  for(uint i = 0; i < plsize; i += point_filter_num)
   {
+    const auto &source = pl_orig.points[i];
+    if (!pcl::isFinite(source))
+      continue;
+
     PointType added_pt;
     added_pt.normal_x = 0;
     added_pt.normal_y = 0;
     added_pt.normal_z = 0;
-    added_pt.x = pl_orig.points[i].x;
-    added_pt.y = pl_orig.points[i].y;
-    added_pt.z = pl_orig.points[i].z;
-    added_pt.intensity = pl_orig.points[i].intensity;
+    added_pt.x = source.x;
+    added_pt.y = source.y;
+    added_pt.z = source.z;
+    added_pt.intensity = 0;
     added_pt.curvature = 0.;
 
     if (added_pt.x * added_pt.x + added_pt.y * added_pt.y + added_pt.z * added_pt.z > (blind * blind))
